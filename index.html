@@ -160,6 +160,9 @@
             timerInterval && clearInterval(timerInterval);
         };
         const startGame = () => {
+            if (audioContext) {
+                audioContext.resume();
+            }
             instructionsEl.style.display = 'none'; startButton.style.display = 'none';
             messageAreaEl.textContent = 'アタリ！石を囲んで取ろう！'; currentProblemIndex = 0; gameInProgress = true;
             loadProblem(currentProblemIndex); startTime = Date.now();
@@ -180,12 +183,7 @@
                 ? handleCorrectMove(currentProblem, boardX, boardY)
                 : messageAreaEl.textContent = 'そこでは取れません。';
         });
-        startButton.addEventListener('click', () => {
-            if (audioContext && audioContext.state === 'suspended') {
-              audioContext.resume();
-            }
-            startGame();
-          });
+        startButton.addEventListener('click', startGame);
         retryButton.addEventListener('click', () => { resultScreen.style.display = 'none'; initGame(); });
         initGame();
     </script>
