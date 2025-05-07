@@ -160,9 +160,6 @@
             timerInterval && clearInterval(timerInterval);
         };
         const startGame = () => {
-            if (audioContext) {
-                audioContext.resume();
-            }
             instructionsEl.style.display = 'none'; startButton.style.display = 'none';
             messageAreaEl.textContent = 'アタリ！石を囲んで取ろう！'; currentProblemIndex = 0; gameInProgress = true;
             loadProblem(currentProblemIndex); startTime = Date.now();
