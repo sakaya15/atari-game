@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>アタリ！ - 石取り快感ゲーム</title>
+    <style>
+        body { font-family: 'Arial', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background-color: #f0f0f0; color: #333; }
+        #game-container { background-color: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 0 15px rgba(0,0,0,0.2); text-align: center; }
+        h1 { color: #333; }
+        #info-area { display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 1.1em; }
+        #problem-counter, #timer { background-color: #e9e9e9; padding: 5px 10px; border-radius: 5px; }
+        #board-container { width: 320px; height: 320px; position: relative; background-color: #DAB88B; border: 1px solid #333; padding: 20px; box-sizing: content-box; cursor: pointer; margin: 0 auto 15px auto;
+            background-image: repeating-linear-gradient(#333 0 1px, transparent 1px 40px), repeating-linear-gradient(90deg, #333 0 1px, transparent 1px 40px);
+            background-size: 40px 40px; background-position: 20px 20px; }
+        .stone { width: 32px; height: 32px; border-radius: 50%; position: absolute; box-sizing: border-box; pointer-events: none; box-shadow: 1px 1px 3px rgba(0,0,0,0.5); transition: opacity 0.3s ease-out, transform 0.3s ease-out; }
+        .black { background-color: black; }
+        .white { background-color: white; border: 1px solid #555; }
+        .captured { opacity: 0; transform: scale(0.5); }
+        #message-area { font-size: 1.2em; color: #d35400; height: 30px; margin-bottom: 10px; font-weight: bold; }
+        button { background-color: #3498db; color: white; border: none; padding: 12px 25px; font-size: 1.1em; border-radius: 5px; cursor: pointer; transition: background-color 0.2s; }
+        button:hover { background-color: #2980b9; }
+        #start-button { display: block; margin: 20px auto; }
+        #result-screen { display: none; background-color: #fff; padding: 30px; border-radius: 10px; box-shadow: 0 0 15px rgba(0,0,0,0.2); text-align: center; margin-top: 20px; }
+        #result-screen h2 { color: #2ecc71; }
+        .instructions { margin-bottom: 20px; background-color: #eef; padding: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>アタリ！ - 石取り快感ゲーム</h1>
+    <div class="instructions">
+        <p>ルール: あと1手で石が取れる状態（＝アタリ）です。<br>囲んで石を取って下さい。</p>
+        <p>10問すべて正解するまでのタイムを競います！</p>
+    </div>
+    <div id="game-container">
+        <div id="info-area">
+            <span id="problem-counter">問題: 0/10</span>
+            <span id="timer">タイム: 00:00.000</span>
+        </div>
+        <div id="board-container"></div>
+        <div id="message-area"></div>
+        <button id="start-button">スタート！</button>
+    </div>
+    <div id="result-screen">
+        <h2>クリア！おめでとうございます！</h2>
+        <p>あなたのタイム: <strong id="final-time"></strong></p>
+        <button id="retry-button">もう一度挑戦</button>
+    </div>
+    <script>
+        const BOARD_SIZE = 9, CELL_SIZE = 40, STONE_DIAMETER = 32, BOARD_PADDING = 20;
+        const gebi = (id) => document.getElementById(id);
+        const boardContainer = gebi('board-container'), problemCounterEl = gebi('problem-counter'), timerEl = gebi('timer');
+        const messageAreaEl = gebi('message-area'), startButton = gebi('start-button'), resultScreen = gebi('result-screen');
+        const finalTimeEl = gebi('final-time'), retryButton = gebi('retry-button'), gameContainer = gebi('game-container');
+        const instructionsEl = document.querySelector('.instructions');
+
+        let problems = [], currentProblemIndex = 0, timerInterval, startTime, audioContext, gameInProgress = false;
+        try { audioContext = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { console.warn("Web Audio API not supported."); audioContext = null; }
+
+        const playSound = (type) => {
+            if (!audioContext) return;
+            const ctx = audioContext, master = ctx.createGain(); master.connect(ctx.destination);
+            if (type === 'success') {
+                master.gain.value = 0.30;
+                const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.setValueAtTime(500, ctx.currentTime); filter.frequency.exponentialRampToValueAtTime(9000, ctx.currentTime + 0.22); filter.connect(master);
+                const delay = ctx.createDelay(); delay.delayTime.value = 0.14; const feedback = ctx.createGain(); feedback.gain.value = 0.35; delay.connect(feedback); feedback.connect(delay); delay.connect(master);
+                [783.99, 987.77, 1174.66, 1567.98].forEach((f, i) => {
+                    const osc = ctx.createOscillator(), gain = ctx.createGain(), pan = ctx.createStereoPanner();
+                    osc.type = 'sawtooth'; osc.frequency.setValueAtTime(f, ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(f * 1.4, ctx.currentTime + 0.18);
+                    pan.pan.value = i % 2 === 0 ? -0.5 : 0.5;
+                    gain.gain.setValueAtTime(0.30, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.32);
+                    osc.connect(gain).connect(pan).connect(filter); osc.connect(delay);
+                    const t0 = ctx.currentTime + i * 0.05; osc.start(t0); osc.stop(t0 + 0.35);
+                });
+            } else if (type === 'clear') {
+                master.gain.value = 0.60;
+                const early = ctx.createDelay(); early.delayTime.value = 0.16; const late = ctx.createDelay(); late.delayTime.value = 0.36; const fb = ctx.createGain(); fb.gain.value = 0.22; early.connect(late).connect(fb).connect(late); early.connect(master); late.connect(master);
+                const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 350; const air = ctx.createBiquadFilter(); air.type = "highshelf"; air.frequency.value = 5000; air.gain.value = 4; hp.connect(air).connect(master);
+                const baseFreqs = [1046.5, 1318.5, 1567.98, 1975.53, 2349.32], start = ctx.currentTime;
+                baseFreqs.forEach((f, i) => {
+                    [-3, +3].forEach(det => {
+                        const osc = ctx.createOscillator(), g = ctx.createGain(), pan = ctx.createStereoPanner(); osc.type = "triangle"; osc.frequency.value = f * Math.pow(2, det / 1200);
+                        const t0 = start + i * 0.07; g.gain.setValueAtTime(0.18, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + 1.0); pan.pan.value = det < 0 ? -0.2 : 0.2;
+                        osc.connect(g).connect(pan).connect(hp); g.connect(early); osc.start(t0); osc.stop(t0 + 1.2);
+                    });
+                    const bell = ctx.createOscillator(), gb = ctx.createGain(), pan2 = ctx.createStereoPanner(); bell.type = "sine"; bell.frequency.value = f * 2;
+                    const tb = start + i * 0.07 + 0.02; gb.gain.setValueAtTime(0.12, tb); gb.gain.exponentialRampToValueAtTime(0.0008, tb + 0.8); pan2.pan.value = (i % 2 ? -0.35 : 0.35);
+                    bell.connect(gb).connect(pan2).connect(air); gb.connect(early); bell.start(tb); bell.stop(tb + 0.9);
+                });
+                const sweep = ctx.createBiquadFilter(); sweep.type = "lowpass"; sweep.frequency.setValueAtTime(1200, start); sweep.frequency.linearRampToValueAtTime(9000, start + 0.7);
+                hp.disconnect(); hp.connect(sweep).connect(air);
+            }
+        };
+
+        problems = [
+            { stones: [{x:4,y:4,color:'white'}, {x:3,y:4,color:'black'}, {x:5,y:4,color:'black'}, {x:4,y:3,color:'black'}], placeStoneAt: {x:4,y:5}, playerColor:'black', capturedStones:[{x:4,y:4,color:'white'}] },
+            { stones: [{x:4,y:0,color:'black'}, {x:3,y:0,color:'white'}, {x:5,y:0,color:'white'}], placeStoneAt: {x:4,y:1}, playerColor:'white', capturedStones:[{x:4,y:0,color:'black'}] },
+            { stones: [{x:0,y:0,color:'white'}, {x:1,y:0,color:'black'}], placeStoneAt: {x:0,y:1}, playerColor:'black', capturedStones:[{x:0,y:0,color:'white'}] },
+            { stones: [{x:0,y:2,color:'black'}, {x:0,y:1,color:'white'}, {x:1,y:2,color:'white'}], placeStoneAt: {x:0,y:3}, playerColor:'white', capturedStones:[{x:0,y:2,color:'black'}] },
+            { stones: [ {x:6,y:6,color:'black'}, {x:6,y:7,color:'black'}, {x:5,y:6,color:'white'}, {x:7,y:6,color:'white'}, {x:5,y:7,color:'white'}, {x:7,y:7,color:'white'}, {x:6,y:5,color:'white'} ], placeStoneAt: {x:6,y:8}, playerColor:'white', capturedStones:[{x:6,y:6,color:'black'}, {x:6,y:7,color:'black'}] },
+            { stones: [ {x:1,y:1,color:'white'}, {x:2,y:1,color:'white'}, {x:3,y:1,color:'white'}, {x:0,y:1,color:'black'}, {x:4,y:1,color:'black'}, {x:1,y:0,color:'black'}, {x:2,y:0,color:'black'}, {x:3,y:0,color:'black'}, {x:1,y:2,color:'black'}, {x:3,y:2,color:'black'} ], placeStoneAt: {x:2,y:2}, playerColor:'black', capturedStones:[{x:1,y:1,color:'white'}, {x:2,y:1,color:'white'}, {x:3,y:1,color:'white'}] },
+            { stones: [{x:2,y:2,color:'white'},{x:2,y:1,color:'black'},{x:1,y:2,color:'black'},{x:2,y:3,color:'black'}], placeStoneAt: {x:3,y:2}, playerColor:'black', capturedStones:[{x:2,y:2,color:'white'}]},
+            { stones: [{x:0,y:4,color:'white'},{x:0,y:5,color:'white'},{x:1,y:4,color:'black'},{x:1,y:5,color:'black'},{x:0,y:3,color:'black'}], placeStoneAt: {x:0,y:6}, playerColor:'black', capturedStones:[{x:0,y:4,color:'white'},{x:0,y:5,color:'white'}]},
+            { stones: [{x:5,y:3,color:'black'},{x:5,y:4,color:'black'},{x:5,y:5,color:'white'},{x:4,y:3,color:'white'},{x:6,y:3,color:'white'},{x:4,y:4,color:'white'},{x:6,y:4,color:'white'}], placeStoneAt: {x:5,y:2}, playerColor:'white', capturedStones:[{x:5,y:3,color:'black'},{x:5,y:4,color:'black'}]},
+            { stones: [ {x:4,y:4,color:'black'},{x:3,y:4,color:'black'},{x:5,y:4,color:'black'},{x:4,y:3,color:'black'},{x:4,y:5,color:'black'}, {x:2,y:4,color:'white'},{x:6,y:4,color:'white'},{x:3,y:3,color:'white'},{x:5,y:3,color:'white'}, {x:3,y:5,color:'white'},{x:5,y:5,color:'white'},{x:4,y:2,color:'white'}, ], placeStoneAt: {x:4,y:6}, playerColor:'white', capturedStones:[{x:4,y:4,color:'black'},{x:3,y:4,color:'black'},{x:5,y:4,color:'black'},{x:4,y:3,color:'black'},{x:4,y:5,color:'black'}]}
+        ];
+
+        const formatTime = ms => `${String(Math.floor(ms/60000)).padStart(2,'0')}:${String(Math.floor((ms%60000)/1000)).padStart(2,'0')}.${String(ms%1000).padStart(3,'0')}`;
+        const updateTimer = () => timerEl.textContent = `タイム: ${formatTime(Date.now() - startTime)}`;
+        const createStoneElement = (x, y, color) => {
+            const stoneEl = document.createElement('div');
+            stoneEl.className = `stone ${color}`;
+            stoneEl.style.left = `${BOARD_PADDING + x * CELL_SIZE - STONE_DIAMETER / 2}px`;
+            stoneEl.style.top = `${BOARD_PADDING + y * CELL_SIZE - STONE_DIAMETER / 2}px`;
+            stoneEl.dataset.x = x; stoneEl.dataset.y = y;
+            boardContainer.appendChild(stoneEl);
+            return stoneEl;
+        };
+        const renderBoard = problemData => {
+            boardContainer.innerHTML = '';
+            problemData.stones.forEach(s => createStoneElement(s.x, s.y, s.color));
+        };
+        const gameClear = () => {
+            clearInterval(timerInterval); gameInProgress = false;
+            finalTimeEl.textContent = formatTime(Date.now() - startTime);
+            gameContainer.style.display = 'none'; resultScreen.style.display = 'block';
+            messageAreaEl.textContent = 'クリアおめでとう！'; playSound('clear');
+        };
+        const loadProblem = index => {
+            if (index >= problems.length) return gameClear();
+            problemCounterEl.textContent = `問題: ${index + 1}/${problems.length}`;
+            renderBoard(problems[index]);
+        };
+        const handleCorrectMove = (problem, placedX, placedY) => {
+            gameInProgress = false;
+            const playerStoneEl = createStoneElement(placedX, placedY, problem.playerColor);
+            problem.capturedStones.forEach(cap => {
+                const stone = boardContainer.querySelector(`.stone[data-x="${cap.x}"][data-y="${cap.y}"]`);
+                stone && stone.classList.add('captured');
+            });
+            playSound('success'); messageAreaEl.textContent = '石が取れました！';
+            setTimeout(() => {
+                problem.capturedStones.forEach(cap => {
+                    const stone = boardContainer.querySelector(`.stone.captured[data-x="${cap.x}"][data-y="${cap.y}"]`);
+                    stone && stone.remove();
+                });
+                playerStoneEl && playerStoneEl.remove();
+                currentProblemIndex++;
+                if (currentProblemIndex < problems.length) {
+                    messageAreaEl.textContent = 'アタリ！石を囲んで取ろう！';
+                    loadProblem(currentProblemIndex); gameInProgress = true;
+                } else { gameClear(); }
+            }, 800);
+        };
+        const initGame = () => {
+            instructionsEl.style.display = 'block'; gameContainer.style.display = 'block'; resultScreen.style.display = 'none';
+            startButton.style.display = 'block'; messageAreaEl.textContent = 'ボタンを押してスタート！';
+            problemCounterEl.textContent = `問題: 0/${problems.length}`; timerEl.textContent = 'タイム: 00:00.000';
+            boardContainer.innerHTML = ''; currentProblemIndex = 0; gameInProgress = false;
+            timerInterval && clearInterval(timerInterval);
+        };
+        const startGame = () => {
+            instructionsEl.style.display = 'none'; startButton.style.display = 'none';
+            messageAreaEl.textContent = 'アタリ！石を囲んで取ろう！'; currentProblemIndex = 0; gameInProgress = true;
+            loadProblem(currentProblemIndex); startTime = Date.now();
+            timerInterval = setInterval(updateTimer, 10);
+        };
+
+        boardContainer.addEventListener('click', e => {
+            if (!gameInProgress || currentProblemIndex >= problems.length) return;
+            const rect = boardContainer.getBoundingClientRect();
+            const boardX = Math.round((e.clientX - rect.left - BOARD_PADDING) / CELL_SIZE);
+            const boardY = Math.round((e.clientY - rect.top - BOARD_PADDING) / CELL_SIZE);
+            if (boardX < 0 || boardX >= BOARD_SIZE || boardY < 0 || boardY >= BOARD_SIZE) return;
+            const currentProblem = problems[currentProblemIndex];
+            if (currentProblem.stones.find(s => s.x === boardX && s.y === boardY)) {
+                return messageAreaEl.textContent = 'そこには既に石があります。';
+            }
+            (boardX === currentProblem.placeStoneAt.x && boardY === currentProblem.placeStoneAt.y)
+                ? handleCorrectMove(currentProblem, boardX, boardY)
+                : messageAreaEl.textContent = 'そこでは取れません。';
+        });
+        startButton.addEventListener('click', startGame);
+        retryButton.addEventListener('click', () => { resultScreen.style.display = 'none'; initGame(); });
+        initGame();
+    </script>
+</body>
+</html>
