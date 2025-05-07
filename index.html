@@ -180,7 +180,12 @@
                 ? handleCorrectMove(currentProblem, boardX, boardY)
                 : messageAreaEl.textContent = 'そこでは取れません。';
         });
-        startButton.addEventListener('click', startGame);
+        startButton.addEventListener('click', () => {
+            if (audioContext && audioContext.state === 'suspended') {
+              audioContext.resume();
+            }
+            startGame();
+          });
         retryButton.addEventListener('click', () => { resultScreen.style.display = 'none'; initGame(); });
         initGame();
     </script>
